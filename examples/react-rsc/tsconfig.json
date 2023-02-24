@@ -1,0 +1,11 @@
+{
+  "exclude": ["build", "public/build"],
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "jsx": "react-jsx",
+    "lib": ["DOM"]
+  }
+}

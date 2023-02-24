@@ -1,0 +1,35 @@
+{
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "jbundler": {
+    "browser": {
+      "entry": "app/entry.browser.jsx",
+      "outdir": "public/build",
+      "publicPath": "/build/",
+      "stripExports": {
+        "*/app/routes/*": [
+          "loader"
+        ]
+      }
+    },
+    "server": {
+      "entry": "app/entry.server.jsx",
+      "outdir": "build"
+    }
+  },
+  "scripts": {
+    "build": "jbundler build",
+    "dev": "jbundler dev -- node --watch server.js"
+  },
+  "dependencies": {
+    "react": "0.0.0-experimental-4fcc9184a-20230217",
+    "react-dom": "0.0.0-experimental-4fcc9184a-20230217",
+    "router-trie": "0.0.8"
+  },
+  "devDependencies": {
+    "@types/react": "18.0.28",
+    "@types/react-dom": "18.0.11",
+    "jbundler": "*"
+  }
+}
