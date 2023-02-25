@@ -1,5 +1,3 @@
-"use server";
-
 export async function loader() {
   return {
     message: "About page!",

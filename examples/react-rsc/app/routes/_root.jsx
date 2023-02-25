@@ -1,3 +1,5 @@
+import { Counter } from "../components/counter.jsx";
+
 const js = String.raw;
 
 export default function Root({ children }) {
@@ -8,6 +10,8 @@ export default function Root({ children }) {
       </head>
       <body>
         <h1>Hello, World!</h1>
+
+        <Counter initialValue={6} />
 
         {children}
 

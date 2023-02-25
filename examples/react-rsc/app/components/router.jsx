@@ -1,11 +1,12 @@
+"use client";
 import * as React from "react";
 
 /** @type {import("./router.js").MatchRenderer} */
-export function MatchRenderer({ routes, matches }) {
+export function MatchRenderer({ matches }) {
   return createElementsFromMatches(matches);
 }
 
-function createElementsFromMatches(matches) {
+export function createElementsFromMatches(matches) {
   let previousElement = null;
   let errorToHandle = undefined;
   for (let i = matches.length - 1; i >= 0; i--) {

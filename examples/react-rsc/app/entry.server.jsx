@@ -12,7 +12,7 @@ import entryScript, {
 } from "jbundler/client-entry";
 import webpackMapJson from "jbundler/webpack-map";
 
-import { MatchRenderer } from "./components/router.jsx";
+import { createElementsFromMatches } from "./components/router.jsx";
 import routes from "./routes.jsx";
 
 const js = String.raw;
@@ -41,7 +41,7 @@ export default async function handler({ res, url }) {
   await Promise.all(matchPreparationPromises);
 
   const rscStream = renderToPipeableStreamRSC(
-    <MatchRenderer matches={matches} />,
+    createElementsFromMatches(matches),
     webpackMap,
     {
       onError(error) {

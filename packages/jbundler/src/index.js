@@ -5,6 +5,7 @@ import * as esbuild from "esbuild";
 
 import { createESBuildPlugin } from "./plugin.js";
 import { createServerClientComponentsTransformPlugin } from "./plugins/rsc-server-client-components.js";
+import { createServerServerComponentsTransformPlugin } from "./plugins/rsc-server-server-components.js";
 import { createStripExportsTransformPlugin } from "./plugins/strip-exports.js";
 
 export { loadConfig } from "./config.js";
@@ -17,22 +18,27 @@ export async function build(config) {
   let browserBuildResult;
   /** @type {import("esbuild").BuildResult} */
   let serverBuildResult;
-  const rscEntriesCache = new Set();
+  const rscEntriesClientCache = new Set();
+  const rscEntriesServerCache = new Set();
   if (config.rsc) {
     const serverBuildOptions = createEsbuildServerOptions(
       config,
-      rscEntriesCache
+      rscEntriesClientCache,
+      rscEntriesServerCache
     );
     serverBuildResult = await runEsbuild(serverBuildOptions, "Server      |");
     const browserBuildOptions = createEsbuildBrowserOptions(
       config,
-      rscEntriesCache
+      rscEntriesClientCache
     );
     browserBuildResult = await runEsbuild(browserBuildOptions, "Browser     |");
 
+    console.log(rscEntriesClientCache);
+    console.log(rscEntriesServerCache);
     const rscServerBuildOptions = createEsbuildServerOptions(
       config,
-      rscEntriesCache
+      rscEntriesClientCache,
+      rscEntriesServerCache
     );
     serverBuildResult = await runEsbuild(
       rscServerBuildOptions,
@@ -82,7 +88,7 @@ export async function build(config) {
   const browserWebpackMap = config.rsc
     ? createBrowserWebpackMap(
         config,
-        rscEntriesCache,
+        rscEntriesClientCache,
         browserBuildResult,
         serverBuildResult
       )
@@ -155,24 +161,36 @@ function createEsbuildBrowserOptions(config, rscEntriesCache = undefined) {
 /**
  *
  * @param {import("./config.js").JBundlerConfig} config
- * @param {Set<string>} rscEntriesCache
+ * @param {Set<string>} rscEntriesClientCache
+ * @param {Set<string>} rscEntriesServerCache
  * @returns {import("esbuild").BuildOptions}
  */
-function createEsbuildServerOptions(config, rscEntriesCache = undefined) {
+function createEsbuildServerOptions(
+  config,
+  rscEntriesClientCache = undefined,
+  rscEntriesServerCache = undefined
+) {
   const transformPlugins = [
     createStripExportsTransformPlugin(config.server.stripExports),
   ];
 
   if (config.rsc) {
-    if (!rscEntriesCache) {
+    if (!rscEntriesClientCache || !rscEntriesServerCache) {
       throw new Error("RSC entries cache not provided");
     }
     transformPlugins.push(
-      createServerClientComponentsTransformPlugin(config, rscEntriesCache)
+      createServerClientComponentsTransformPlugin(
+        config,
+        rscEntriesClientCache
+      ),
+      createServerServerComponentsTransformPlugin(config, rscEntriesServerCache)
     );
   }
 
-  const rscEntries = Array.from(rscEntriesCache || []);
+  const rscEntries = new Set([
+    ...Array.from(rscEntriesClientCache || []),
+    ...Array.from(rscEntriesServerCache || []),
+  ]);
 
   return {
     absWorkingDir: config.cwd,

@@ -6,3 +6,5 @@ export interface MatchRendererProps {
 }
 
 export const MatchRenderer: React.FC<MatchRendererProps>;
+
+export function createElementsFromMatches(matches): JSX.Element;

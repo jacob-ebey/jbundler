@@ -8,7 +8,7 @@ import * as esbuild from "esbuild";
  * @param {Set<string>} rscEntriesCache
  * @returns {import("../plugin.js").TransformPlugin}
  */
-export function createServerClientComponentsTransformPlugin(
+export function createServerServerComponentsTransformPlugin(
   config,
   rscEntriesCache
 ) {
@@ -16,7 +16,7 @@ export function createServerClientComponentsTransformPlugin(
     let code = contents.code;
     let loader = contents.loader;
 
-    if (!code.match(/^\s*['"]use client['"]/)) {
+    if (!code.match(/^\s*['"]use server['"]/)) {
       return contents;
     }
 
@@ -53,7 +53,7 @@ export function createServerClientComponentsTransformPlugin(
               if (t.isFunctionDeclaration(node.declaration)) {
                 let name = node.declaration.id?.name;
                 if (!name || name[0] !== name[0].toUpperCase()) return;
-                rscExports.push("default");
+                rscExports.push([name, "default"]);
               }
             },
           },
@@ -67,12 +67,15 @@ export function createServerClientComponentsTransformPlugin(
 
     let footer = "";
     for (const rscExport of rscExports) {
-      footer += `Object.defineProperties(${rscExport}, {
-        $$typeof: { value: Symbol.for("react.client.reference") },
+      let [defineFor, name] = Array.isArray(rscExport)
+        ? rscExport
+        : [rscExport, rscExport];
+      footer += `Object.defineProperties(${defineFor}, {
+        $$typeof: { value: Symbol.for('react.server.reference') },
         filepath: { value: ${JSON.stringify(
           path.relative(config.cwd, contents.path)
         )} },
-        name: { value: ${JSON.stringify(rscExport)} },
+        name: { value: ${JSON.stringify(name)} },
         async: { value: true },
       });
       `;
