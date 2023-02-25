@@ -67,6 +67,7 @@ export function createServerClientComponentsTransformPlugin(
           path.relative(config.cwd, contents.path)
         )} },
         name: { value: ${JSON.stringify(rscExport)} },
+        async: { value: true },
       });
       `;
       // footer += `const ___RSC___${rscExport} = {

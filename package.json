@@ -3,5 +3,11 @@
   "workspaces": [
     "examples/*",
     "packages/*"
-  ]
+  ],
+  "scripts": {
+    "postinstall": "patch-package"
+  },
+  "devDependencies": {
+    "patch-package": "6.5.1"
+  }
 }

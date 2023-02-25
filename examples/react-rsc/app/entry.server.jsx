@@ -1,12 +1,17 @@
-import { renderToString } from "react-dom/server";
-import { renderToPipeableStream } from "react-server-dom-webpack/server";
+/// <reference types="react/experimental" />
+import { use } from "react";
+import { renderToPipeableStream as renderToPipeableStreamDOM } from "react-dom/server";
+import { createFromNodeStream } from "react-server-dom-webpack/client";
+import { renderToPipeableStream as renderToPipeableStreamRSC } from "react-server-dom-webpack/server";
 import { matchTrie } from "router-trie";
+
+import entryScript from "jbundler/client-entry";
 import webpackMapJson from "jbundler/webpack-map";
 
 import { MatchRenderer } from "./components/router.jsx";
 import Html from "./html.jsx";
 import routes from "./routes.jsx";
-import { formatError } from "./util.js";
+import { PassThrough } from "node:stream";
 
 const RENDER_TIMEOUT = 5_000;
 
@@ -21,38 +26,10 @@ const webpackMap = JSON.parse(webpackMapJson);
 export default async function handler({ res, url }) {
   const matches = matchTrie(routes, url.pathname);
 
-  if (!url.searchParams.has("_rsc")) {
-    const html = renderToString(<Html />);
-    res.writeHead(200, { "Content-Type": "text/html" });
-    res.end("<!DOCTYPE html>" + html);
-    return;
-  }
-
   if (!matches) {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not found");
     return;
-  }
-
-  const routeId = url.searchParams.get("_data");
-  if (routeId) {
-    const match = matches.find((match) => match.id === routeId);
-    if (!match?.loader) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not found");
-      return;
-    }
-
-    try {
-      const data = await match.loader({ url });
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ type: "data", value: data }));
-      return;
-    } catch (error) {
-      const formattedError = formatError(error);
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(formattedError));
-    }
   }
 
   const matchPreparationPromises = [];
@@ -61,7 +38,7 @@ export default async function handler({ res, url }) {
   }
   await Promise.all(matchPreparationPromises);
 
-  const { abort, pipe } = renderToPipeableStream(
+  const rscStream = renderToPipeableStreamRSC(
     <MatchRenderer matches={matches} />,
     webpackMap,
     {
@@ -74,10 +51,74 @@ export default async function handler({ res, url }) {
       },
     }
   );
-  pipe(res);
-  const timeout = setTimeout(() => {
-    abort();
-  }, RENDER_TIMEOUT);
+
+  if (url.searchParams.has("_rsc")) {
+    rscStream.pipe(res);
+    setTimeout(() => {
+      rscStream.abort();
+    }, RENDER_TIMEOUT);
+  } else {
+    const rscPassthrough = new PassThrough();
+    const rscChunk = createFromNodeStream(rscPassthrough, webpackMap);
+    const rscJSONPromise = new Promise((resolve, reject) => {
+      const buffer = [];
+      rscPassthrough.on("data", (chunk) => {
+        buffer.push(chunk);
+      });
+      rscPassthrough.on("end", () => {
+        const rsc = Buffer.concat(buffer).toString();
+        resolve(rsc);
+      });
+      rscPassthrough.on("error", (error) => {
+        reject(error);
+      });
+    });
+    rscStream.pipe(rscPassthrough);
+    function ReactServerComponent() {
+      return use(rscChunk);
+    }
+    function Scripts() {
+      const rsc = use(rscJSONPromise);
+      return (
+        <>
+          <script type="text/rsc" dangerouslySetInnerHTML={{ __html: rsc }} />
+          <script async type="module" src={entryScript} />
+        </>
+      );
+    }
+    const domStream = renderToPipeableStreamDOM(
+      <Html scripts={<Scripts />}>
+        <ReactServerComponent />
+      </Html>,
+      {
+        onShellReady() {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          domStream.pipe(res);
+        },
+        onShellError(error) {
+          console.error(error);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Internal server error");
+          }
+        },
+        onError(error) {
+          console.error(error);
+        },
+      }
+    );
+    setTimeout(() => {
+      rscStream.abort();
+      domStream.abort();
+    }, RENDER_TIMEOUT);
+  }
+
+  // if (!url.searchParams.has("_rsc")) {
+  //   const html = renderToString(<Html />);
+  //   res.writeHead(200, { "Content-Type": "text/html" });
+  //   res.end("<!DOCTYPE html>" + html);
+  //   return;
+  // }
 }
 
 async function prepareMatch(match, url) {

@@ -23,12 +23,21 @@ export async function build(config) {
       config,
       rscEntriesCache
     );
-    serverBuildResult = await runEsbuild(serverBuildOptions, "Server  |");
+    serverBuildResult = await runEsbuild(serverBuildOptions, "Server      |");
     const browserBuildOptions = createEsbuildBrowserOptions(
       config,
       rscEntriesCache
     );
-    browserBuildResult = await runEsbuild(browserBuildOptions, "Browser |");
+    browserBuildResult = await runEsbuild(browserBuildOptions, "Browser     |");
+
+    const rscServerBuildOptions = createEsbuildServerOptions(
+      config,
+      rscEntriesCache
+    );
+    serverBuildResult = await runEsbuild(
+      rscServerBuildOptions,
+      "Server RSC  |"
+    );
   } else {
     const browserBuildOptions = createEsbuildBrowserOptions(config);
     const serverBuildOptions = createEsbuildServerOptions(config);
@@ -52,12 +61,17 @@ export async function build(config) {
       )
       .replace(/\\/g, "/");
 
-  const webpackMap = config.rsc
-    ? createWebpackMap(config, rscEntriesCache, browserBuildResult)
+  const browserWebpackMap = config.rsc
+    ? createBrowserWebpackMap(
+        config,
+        rscEntriesCache,
+        browserBuildResult,
+        serverBuildResult
+      )
     : "";
 
-  writeFiles(browserBuildResult, clientEntry, "browser", webpackMap);
-  writeFiles(serverBuildResult, clientEntry, "server", webpackMap);
+  writeFiles(browserBuildResult, clientEntry, "browser", browserWebpackMap);
+  writeFiles(serverBuildResult, clientEntry, "server", browserWebpackMap);
 }
 
 /** @type {import("./index.js").watch} */
@@ -88,9 +102,9 @@ function createEsbuildBrowserOptions(config, rscEntriesCache = undefined) {
     splitting: true,
     write: false,
     metafile: true,
-    minify: true,
+    minify: false,
     define: {
-      "process.env.NODE_ENV": '"production"',
+      "process.env.NODE_ENV": '"development"',
     },
     plugins: [
       {
@@ -128,9 +142,11 @@ function createEsbuildServerOptions(config, rscEntriesCache = undefined) {
     );
   }
 
+  const rscEntries = Array.from(rscEntriesCache || []);
+
   return {
     absWorkingDir: config.cwd,
-    entryPoints: [config.server.entry],
+    entryPoints: [config.server.entry, ...rscEntries],
     bundle: true,
     outdir: path.relative(config.cwd, config.server.outdir),
     platform: "node",
@@ -139,6 +155,7 @@ function createEsbuildServerOptions(config, rscEntriesCache = undefined) {
     format: "esm",
     splitting: true,
     write: false,
+    metafile: true,
     conditions: ["react-server"],
     plugins: [
       {
@@ -173,9 +190,15 @@ function createEsbuildServerOptions(config, rscEntriesCache = undefined) {
  * @param {import("./config.js").JBundlerConfig} config
  * @param {Set<string>} rscEntriesCache
  * @param {import("esbuild").BuildResult} browserBuildResult
+ * @param {import("esbuild").BuildResult} serverBuildResult
  * @returns {string}
  */
-function createWebpackMap(config, rscEntriesCache, browserBuildResult) {
+function createBrowserWebpackMap(
+  config,
+  rscEntriesCache,
+  browserBuildResult,
+  serverBuildResult
+) {
   // map rscEntriesCache input files to their output chunks
   /**
    * @type {Record<string, Record<string, {
@@ -185,6 +208,18 @@ function createWebpackMap(config, rscEntriesCache, browserBuildResult) {
    * }>>}
    */
   const webpackMap = {};
+
+  const buildChunks = new Map(
+    Object.entries(serverBuildResult.metafile.outputs).reduce(
+      (acc, [outputFile, output]) => {
+        if (output.entryPoint) {
+          acc.push([output.entryPoint, outputFile]);
+        }
+        return acc;
+      },
+      []
+    )
+  );
 
   for (const [outputFile, output] of Object.entries(
     browserBuildResult.metafile.outputs
@@ -196,17 +231,21 @@ function createWebpackMap(config, rscEntriesCache, browserBuildResult) {
           continue;
         }
 
-        webpackMap[input] = webpackMap[input] || {};
         const entryChunk =
           config.browser.publicPath +
           path.relative(
             config.browser.outdir,
             path.resolve(config.cwd, outputFile)
           );
+        webpackMap[input] = webpackMap[input] || {};
+        webpackMap[entryChunk] = webpackMap[entryChunk] || {};
+        const specifier = buildChunks.get(input);
+
         for (const exportKey of output.exports) {
-          webpackMap[input][exportKey] = {
+          const entry = {
             id: entryChunk,
             name: exportKey,
+            specifier,
             chunks: [
               entryChunk,
               ...output.imports.reduce((acc, c) => {
@@ -223,6 +262,8 @@ function createWebpackMap(config, rscEntriesCache, browserBuildResult) {
               }, []),
             ],
           };
+          webpackMap[input][exportKey] = entry;
+          webpackMap[entryChunk][exportKey] = entry;
         }
       }
     }

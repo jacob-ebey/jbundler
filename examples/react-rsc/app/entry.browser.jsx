@@ -1,21 +1,21 @@
-// @ts-expect-error
+/// <reference types="react/experimental" />
 import { use } from "react";
 import { createRoot } from "react-dom/client";
 import { createFromFetch } from "react-server-dom-webpack/client";
 
-const moduleCache = {};
-globalThis.__webpack_chunk_load__ = async (chunkId) => {
-  moduleCache[chunkId] = await import(chunkId);
-};
+/** @type {Promise<Response>} */
+let rscResponse;
 
-globalThis.__webpack_require__ = (chunkId) => {
-  return moduleCache[chunkId];
-};
+const rscNode = document.querySelector("script[type='text/rsc']");
+if (rscNode) {
+  rscResponse = fetch(`data:text/plain;base64,${btoa(rscNode.textContent)}`);
+} else {
+  const url = new URL(location.href);
+  url.searchParams.set("_rsc", "");
+  rscResponse = fetch(url);
+}
 
-const url = new URL(location.href);
-url.searchParams.set("_rsc", "");
-const rscChunk = createFromFetch(fetch(url));
-
+const rscChunk = createFromFetch(rscResponse);
 function ReactServerComponent() {
   return use(rscChunk);
 }
