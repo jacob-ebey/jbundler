@@ -61,6 +61,24 @@ export async function build(config) {
       )
       .replace(/\\/g, "/");
 
+  const clientImports = Object.entries(browserBuildResult.metafile.outputs)
+    .find(([, output]) => output.entryPoint)[1]
+    .imports.reduce((acc, imp) => {
+      if (imp.kind === "import-statement" && !imp.external) {
+        acc.push(
+          config.browser.publicPath +
+            path
+              .relative(
+                config.browser.outdir,
+                path.resolve(config.cwd, imp.path)
+              )
+              .replace(/\\/g, "/")
+        );
+      }
+      return acc;
+    }, []);
+  const clientImportsJson = JSON.stringify(clientImports);
+
   const browserWebpackMap = config.rsc
     ? createBrowserWebpackMap(
         config,
@@ -70,8 +88,20 @@ export async function build(config) {
       )
     : "";
 
-  writeFiles(browserBuildResult, clientEntry, "browser", browserWebpackMap);
-  writeFiles(serverBuildResult, clientEntry, "server", browserWebpackMap);
+  writeFiles(
+    browserBuildResult,
+    clientEntry,
+    clientImportsJson,
+    "browser",
+    browserWebpackMap
+  );
+  writeFiles(
+    serverBuildResult,
+    clientEntry,
+    clientImportsJson,
+    "server",
+    browserWebpackMap
+  );
 }
 
 /** @type {import("./index.js").watch} */
@@ -276,10 +306,17 @@ function createBrowserWebpackMap(
  *
  * @param {import("esbuild").BuildResult} buildResult
  * @param {string} clientEntry
+ * @param {string} clientImports
  * @param {"browser" | "server"} target
  * @param {string} webpackMap
  */
-function writeFiles(buildResult, clientEntry, target, webpackMap) {
+function writeFiles(
+  buildResult,
+  clientEntry,
+  clientImports,
+  target,
+  webpackMap
+) {
   const checkedDirs = new Set();
   for (const output of buildResult.outputFiles) {
     const dir = path.dirname(output.path);
@@ -292,6 +329,10 @@ function writeFiles(buildResult, clientEntry, target, webpackMap) {
       .replace(
         /\/___virtual___client___entry___should___be___replaced___at___build___time___\.js/g,
         clientEntry
+      )
+      .replace(
+        /\/___virtual___client___imports___should___be___replaced___at___build___time___\.js/g,
+        clientImports
       )
       .replace(
         /___virtual___target___should___be___replaced___at___build___time___/g,

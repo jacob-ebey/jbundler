@@ -13,7 +13,7 @@ export default function IndexRoute({ data }) {
       <p>
         <a href="/about">About</a>
       </p>
-      <Counter />
+      <Counter initialValue={6} />
     </main>
   );
 }

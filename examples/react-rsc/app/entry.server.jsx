@@ -7,11 +7,12 @@ import { createFromNodeStream } from "react-server-dom-webpack/client";
 import { renderToPipeableStream as renderToPipeableStreamRSC } from "react-server-dom-webpack/server";
 import { matchTrie } from "router-trie";
 
-import entryScript from "jbundler/client-entry";
+import entryScript, {
+  imports as entryScriptImports,
+} from "jbundler/client-entry";
 import webpackMapJson from "jbundler/webpack-map";
 
 import { MatchRenderer } from "./components/router.jsx";
-import Html from "./html.jsx";
 import routes from "./routes.jsx";
 
 const js = String.raw;
@@ -67,47 +68,24 @@ export default async function handler({ res, url }) {
       return use(rscChunk);
     }
 
-    function Scripts() {
-      return (
-        <>
-          <script
-            dangerouslySetInnerHTML={{
-              __html: js`
-window._rsc = { encoder: new TextEncoder() };
-window._rsc.response = new Response(new ReadableStream({
-  start(controller) {
-    window._rsc.controller = controller;
-  }
-}), { headers: { "Content-Type": "text/plain" } });
-`,
-            }}
-          />
-          <script async type="module" src={entryScript} />
-        </>
-      );
-    }
-    const domStream = renderToPipeableStreamDOM(
-      <Html scripts={<Scripts />}>
-        <ReactServerComponent />
-      </Html>,
-      {
-        onShellReady() {
-          res.writeHead(200, { "Content-Type": "text/html" });
-          domStream.pipe(rscTransform);
-          rscTransform.pipe(res, { end: true });
-        },
-        onShellError(error) {
-          console.error(error);
-          if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "text/plain" });
-            res.end("Internal server error");
-          }
-        },
-        onError(error) {
-          console.error(error);
-        },
-      }
-    );
+    const domStream = renderToPipeableStreamDOM(<ReactServerComponent />, {
+      bootstrapModules: [entryScript, ...entryScriptImports],
+      onShellReady() {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        domStream.pipe(rscTransform);
+        rscTransform.pipe(res, { end: true });
+      },
+      onShellError(error) {
+        console.error(error);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "text/plain" });
+          res.end("Internal server error");
+        }
+      },
+      onError(error) {
+        console.error(error);
+      },
+    });
     setTimeout(() => {
       rscStream.abort();
       domStream.abort();

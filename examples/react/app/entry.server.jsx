@@ -1,6 +1,10 @@
 import { renderToPipeableStream } from "react-dom/server";
 import { matchTrie } from "router-trie";
 
+import entryScript, {
+  imports as entryScriptImports,
+} from "jbundler/client-entry";
+
 import { MatchRenderer } from "./components/router.jsx";
 import routes from "./routes.jsx";
 import { formatError } from "./util.js";
@@ -52,6 +56,7 @@ export default async function handler({ res, url }) {
   const { abort, pipe } = renderToPipeableStream(
     <MatchRenderer matches={matches} />,
     {
+      bootstrapModules: [entryScript, ...entryScriptImports],
       onShellReady() {
         clearInterval(timeout);
         res.writeHead(200, { "Content-Type": "text/html" });

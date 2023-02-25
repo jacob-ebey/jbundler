@@ -1,4 +1,3 @@
-import entryScript from "jbundler/client-entry";
 import buildTarget from "jbundler/build-target";
 
 import { formatError } from "../util.js";
@@ -21,7 +20,6 @@ export default function Root({ matches, children }) {
               buildTarget === "browser" ? " " : serializeMatchData(matches),
           }}
         />
-        <script type="module" src={entryScript} />
       </body>
     </html>
   );
@@ -58,7 +56,6 @@ export function ErrorBoundary({ matches, error }) {
               buildTarget === "browser" ? " " : serializeMatchData(matches),
           }}
         />
-        <script type="module" src={entryScript} />
       </body>
     </html>
   );
@@ -93,6 +90,6 @@ const ESCAPE_REGEX = /[&><\u2028\u2029]/g;
 /**
  * @param {string} html
  */
-export function escapeHtml(html) {
+function escapeHtml(html) {
   return html.replace(ESCAPE_REGEX, (match) => ESCAPE_LOOKUP[match]);
 }

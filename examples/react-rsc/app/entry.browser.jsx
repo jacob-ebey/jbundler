@@ -18,4 +18,4 @@ function ReactServerComponent() {
   return use(rscChunk);
 }
 
-hydrateRoot(document.getElementById("app"), <ReactServerComponent />);
+hydrateRoot(document, <ReactServerComponent />);

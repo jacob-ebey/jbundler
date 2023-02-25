@@ -2,8 +2,8 @@
 
 import * as React from "react";
 
-export function Counter() {
-  const [count, setCount] = React.useState(0);
+export function Counter({ initialValue = 0 }) {
+  const [count, setCount] = React.useState(initialValue);
   return (
     <div>
       <p>Count: {count}</p>
