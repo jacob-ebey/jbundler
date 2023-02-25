@@ -6,6 +6,7 @@ export function MatchRenderer({ matches }) {
   return createElementsFromMatches(matches);
 }
 
+/** @type {import("./router.js").createElementsFromMatches} */
 export function createElementsFromMatches(matches) {
   let previousElement = null;
   let errorToHandle = undefined;
