@@ -1,6 +1,6 @@
 /// <reference types="react/experimental" />
 import { use } from "react";
-import { createRoot } from "react-dom/client";
+import { hydrateRoot } from "react-dom/client";
 import { createFromFetch } from "react-server-dom-webpack/client";
 
 /** @type {Promise<Response>} */
@@ -18,4 +18,4 @@ function ReactServerComponent() {
   return use(rscChunk);
 }
 
-createRoot(document.getElementById("app")).render(<ReactServerComponent />);
+hydrateRoot(document.getElementById("app"), <ReactServerComponent />);
