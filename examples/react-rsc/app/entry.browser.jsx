@@ -5,10 +5,8 @@ import { createFromFetch } from "react-server-dom-webpack/client";
 
 /** @type {Promise<Response>} */
 let rscResponse;
-
-const rscNode = document.querySelector("script[type='text/rsc']");
-if (rscNode) {
-  rscResponse = fetch(`data:text/plain;base64,${btoa(rscNode.textContent)}`);
+if (window._rsc) {
+  rscResponse = Promise.resolve(window._rsc.response);
 } else {
   const url = new URL(location.href);
   url.searchParams.set("_rsc", "");

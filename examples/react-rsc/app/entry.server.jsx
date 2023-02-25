@@ -1,4 +1,6 @@
 /// <reference types="react/experimental" />
+import { PassThrough, Transform } from "node:stream";
+
 import { use } from "react";
 import { renderToPipeableStream as renderToPipeableStreamDOM } from "react-dom/server";
 import { createFromNodeStream } from "react-server-dom-webpack/client";
@@ -11,10 +13,9 @@ import webpackMapJson from "jbundler/webpack-map";
 import { MatchRenderer } from "./components/router.jsx";
 import Html from "./html.jsx";
 import routes from "./routes.jsx";
-import { PassThrough } from "node:stream";
 
+const js = String.raw;
 const RENDER_TIMEOUT = 5_000;
-
 const webpackMap = JSON.parse(webpackMapJson);
 
 /**
@@ -58,30 +59,29 @@ export default async function handler({ res, url }) {
       rscStream.abort();
     }, RENDER_TIMEOUT);
   } else {
-    const rscPassthrough = new PassThrough();
+    const rscPassthrough = new PassThrough({ emitClose: true });
+    const rscTransform = new RSCTransform(rscPassthrough);
     const rscChunk = createFromNodeStream(rscPassthrough, webpackMap);
-    const rscJSONPromise = new Promise((resolve, reject) => {
-      const buffer = [];
-      rscPassthrough.on("data", (chunk) => {
-        buffer.push(chunk);
-      });
-      rscPassthrough.on("end", () => {
-        const rsc = Buffer.concat(buffer).toString();
-        resolve(rsc);
-      });
-      rscPassthrough.on("error", (error) => {
-        reject(error);
-      });
-    });
     rscStream.pipe(rscPassthrough);
     function ReactServerComponent() {
       return use(rscChunk);
     }
+
     function Scripts() {
-      const rsc = use(rscJSONPromise);
       return (
         <>
-          <script type="text/rsc" dangerouslySetInnerHTML={{ __html: rsc }} />
+          <script
+            dangerouslySetInnerHTML={{
+              __html: js`
+window._rsc = { encoder: new TextEncoder() };
+window._rsc.response = new Response(new ReadableStream({
+  start(controller) {
+    window._rsc.controller = controller;
+  }
+}), { headers: { "Content-Type": "text/plain" } });
+`,
+            }}
+          />
           <script async type="module" src={entryScript} />
         </>
       );
@@ -93,7 +93,8 @@ export default async function handler({ res, url }) {
       {
         onShellReady() {
           res.writeHead(200, { "Content-Type": "text/html" });
-          domStream.pipe(res);
+          domStream.pipe(rscTransform);
+          rscTransform.pipe(res, { end: true });
         },
         onShellError(error) {
           console.error(error);
@@ -128,5 +129,61 @@ async function prepareMatch(match, url) {
     } catch (error) {
       match.error = error || null;
     }
+  }
+}
+
+class RSCTransform extends Transform {
+  /**
+   *
+   * @param {import("node:stream").PassThrough} rscPassthrough
+   */
+  constructor(rscPassthrough) {
+    super();
+    this.rscPassthrough = rscPassthrough;
+    this.readyToFlush = false;
+    this.bufferedChunks = [];
+    this.rscPromise = new Promise((resolve, reject) => {
+      this.rscPassthrough.on("data", (chunk) => {
+        const chunkString = chunk.toString();
+        const toPush = `<script>
+  window._rsc.controller.enqueue(
+    window._rsc.encoder.encode(
+      ${JSON.stringify(chunkString)}
+    )
+  );
+</script>`;
+
+        if (this.readyToFlush) {
+          this.push(toPush);
+        } else {
+          this.bufferedChunks.push(toPush);
+        }
+      });
+      this.rscPassthrough.on("end", () => {
+        resolve();
+      });
+      this.rscPassthrough.on("error", (error) => {
+        reject(error);
+      });
+    });
+  }
+
+  _transform(chunk, encoding, callback) {
+    callback(null, chunk);
+  }
+
+  _final(callback) {
+    this.rscPromise.then(
+      () => {
+        for (const chunk of this.bufferedChunks) {
+          this.push(chunk);
+        }
+        this.push(`<script>window._rsc.controller.close();</script>`);
+        callback();
+      },
+      (err) => {
+        callback(err);
+      }
+    );
   }
 }
