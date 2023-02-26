@@ -11,7 +11,7 @@ export function Counter({ initialValue = 0 }) {
       <p>Count: {count}</p>
       <button onClick={() => setCount(count + 1)}>Increment</button>
       <div className="counter-children">
-        <SC label="SC" />
+        <SC label={"SC " + count} />
       </div>
     </div>
   );
