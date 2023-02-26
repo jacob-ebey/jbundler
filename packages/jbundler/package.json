@@ -18,6 +18,7 @@
       "types": "./virtual/build-target.d.ts",
       "default": "./virtual/build-target.js"
     },
+    "./rsc-browser-runtime": "./src/rsc-browser-runtime.js",
     "./webpack-map": {
       "types": "./virtual/webpack-map.d.ts",
       "default": "./virtual/webpack-map.js"

@@ -4,6 +4,7 @@ import * as module from "node:module";
 import * as esbuild from "esbuild";
 
 import { createESBuildPlugin } from "./plugin.js";
+import { createBrowserServerComponentsTransformPlugin } from "./plugins/rsc-browser-server-components.js";
 import { createServerClientComponentsTransformPlugin } from "./plugins/rsc-server-client-components.js";
 import { createServerServerComponentsTransformPlugin } from "./plugins/rsc-server-server-components.js";
 import { createStripExportsTransformPlugin } from "./plugins/strip-exports.js";
@@ -27,14 +28,14 @@ export async function build(config) {
       rscEntriesServerCache
     );
     serverBuildResult = await runEsbuild(serverBuildOptions, "Server      |");
+
     const browserBuildOptions = createEsbuildBrowserOptions(
       config,
-      rscEntriesClientCache
+      rscEntriesClientCache,
+      rscEntriesServerCache
     );
     browserBuildResult = await runEsbuild(browserBuildOptions, "Browser     |");
 
-    console.log(rscEntriesClientCache);
-    console.log(rscEntriesServerCache);
     const rscServerBuildOptions = createEsbuildServerOptions(
       config,
       rscEntriesClientCache,
@@ -116,15 +117,28 @@ export async function watch(config) {}
 /**
  *
  * @param {import("./config.js").JBundlerConfig} config
- * @param {Set<string>} rscEntriesCache
+ * @param {Set<string>} rscEntriesBrowserCache
+ * @param {Set<string>} rscEntriesServerCache
  * @returns {import("esbuild").BuildOptions}
  */
-function createEsbuildBrowserOptions(config, rscEntriesCache = undefined) {
+function createEsbuildBrowserOptions(
+  config,
+  rscEntriesBrowserCache = undefined,
+  rscEntriesServerCache = undefined
+) {
   const transformPlugins = [
     createStripExportsTransformPlugin(config.browser.stripExports),
   ];
 
-  const rscEntries = Array.from(rscEntriesCache || []);
+  const rscEntries = Array.from(rscEntriesBrowserCache || []);
+  if (config.rsc) {
+    transformPlugins.push(
+      createBrowserServerComponentsTransformPlugin(
+        config,
+        rscEntriesServerCache
+      )
+    );
+  }
 
   return {
     absWorkingDir: config.cwd,
@@ -253,6 +267,7 @@ function createBrowserWebpackMap(
    *  id: string;
    *  chunks: string[];
    *  name: string;
+   *  specifier: string;
    * }>>}
    */
   const webpackMap = {};
@@ -313,6 +328,22 @@ function createBrowserWebpackMap(
           webpackMap[input][exportKey] = entry;
           webpackMap[entryChunk][exportKey] = entry;
         }
+      }
+    }
+  }
+
+  for (const [_, output] of Object.entries(
+    serverBuildResult.metafile.outputs
+  )) {
+    if (output.entryPoint) {
+      webpackMap[output.entryPoint] = webpackMap[output.entryPoint] || {};
+      for (const exportKey of output.exports) {
+        // @ts-expect-error - server component chunks only have "specifier"
+        webpackMap[output.entryPoint][exportKey] =
+          webpackMap[output.entryPoint][exportKey] || {};
+        webpackMap[output.entryPoint][exportKey].specifier =
+          webpackMap[output.entryPoint][exportKey].specifier ||
+          buildChunks.get(output.entryPoint);
       }
     }
   }

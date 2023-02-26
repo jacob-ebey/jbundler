@@ -8,7 +8,7 @@ import * as esbuild from "esbuild";
  * @param {Set<string>} rscEntriesCache
  * @returns {import("../plugin.js").TransformPlugin}
  */
-export function createServerServerComponentsTransformPlugin(
+export function createBrowserServerComponentsTransformPlugin(
   config,
   rscEntriesCache
 ) {
@@ -46,6 +46,7 @@ export function createServerServerComponentsTransformPlugin(
                 let name = node.declaration.id?.name;
                 if (!name || name[0] !== name[0].toUpperCase()) return;
                 rscExports.push(name);
+                nodePath.remove();
               }
             },
             ExportDefaultDeclaration(nodePath) {
@@ -54,6 +55,7 @@ export function createServerServerComponentsTransformPlugin(
                 let name = node.declaration.id?.name;
                 if (!name || name[0] !== name[0].toUpperCase()) return;
                 rscExports.push([name, "default"]);
+                nodePath.remove();
               }
             },
           },
@@ -70,18 +72,31 @@ export function createServerServerComponentsTransformPlugin(
       let [defineFor, name] = Array.isArray(rscExport)
         ? rscExport
         : [rscExport, rscExport];
-      footer += `Object.defineProperties(${defineFor}, {
-        $$typeof: { value: Symbol.for('react.server.reference') },
-        $$filepath: { value: ${JSON.stringify(
-          path.relative(config.cwd, contents.path)
-        )} },
-        $$name: { value: ${JSON.stringify(name)} },
-        $$bound: { value: [] },
-      });
-      `;
+      footer += `
+        const ${defineFor} = ___RSCBrowserRuntime___.createServerComponent(
+          ${JSON.stringify(path.relative(config.cwd, contents.path))},
+          ${JSON.stringify(name)},
+          ${JSON.stringify(defineFor)}
+        );
+        Object.defineProperties(${defineFor}, {
+          $$typeof: { value: Symbol.for('react.server.reference') },
+          $$filepath: { value: ${JSON.stringify(
+            path.relative(config.cwd, contents.path)
+          )} },
+          $$name: { value: ${JSON.stringify(name)} },
+          $$bound: { value: [] },
+          async: { value: true },
+        });
+        export { ${defineFor} as ${name} };
+        `;
     }
 
-    code = transformResult.code + footer;
+    code =
+      transformResult.code +
+      (footer
+        ? `import * as ___RSCBrowserRuntime___ from "jbundler/rsc-browser-runtime";` +
+          footer
+        : "");
 
     return {
       code,

@@ -1,4 +1,5 @@
 /// <reference types="react/experimental" />
+import * as path from "node:path";
 import { PassThrough, Transform } from "node:stream";
 
 import { use } from "react";
@@ -26,24 +27,20 @@ const webpackMap = JSON.parse(webpackMapJson);
  * }} args
  */
 export default async function handler({ res, url }) {
-  const matches = matchTrie(routes, url.pathname);
-
-  if (!matches) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-
-  const matchPreparationPromises = [];
-  for (const match of matches) {
-    matchPreparationPromises.push(prepareMatch(match, url));
-  }
-  await Promise.all(matchPreparationPromises);
-
-  const rscStream = renderToPipeableStreamRSC(
-    createElementsFromMatches(matches),
-    webpackMap,
-    {
+  /** @type {ReturnType<typeof renderToPipeableStreamRSC>} */
+  let rscStream;
+  if (
+    url.searchParams.get("_rsc") &&
+    url.searchParams.get("_name") &&
+    url.searchParams.get("_props")
+  ) {
+    const rscId = url.searchParams.get("_rsc");
+    const name = url.searchParams.get("_name");
+    const props = JSON.parse(url.searchParams.get("_props"));
+    const specifier = webpackMap[rscId][name].specifier;
+    const mod = await import(path.resolve(process.cwd(), specifier));
+    const Comp = mod[name];
+    rscStream = renderToPipeableStreamRSC(<Comp {...props} />, webpackMap, {
       onError(error) {
         console.error(error);
         if (!res.headersSent) {
@@ -51,8 +48,36 @@ export default async function handler({ res, url }) {
           res.end("Internal server error");
         }
       },
+    });
+  } else {
+    const matches = matchTrie(routes, url.pathname);
+
+    if (!matches) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+      return;
     }
-  );
+
+    const matchPreparationPromises = [];
+    for (const match of matches) {
+      matchPreparationPromises.push(prepareMatch(match, url));
+    }
+    await Promise.all(matchPreparationPromises);
+
+    rscStream = renderToPipeableStreamRSC(
+      createElementsFromMatches(matches),
+      webpackMap,
+      {
+        onError(error) {
+          console.error(error);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Internal server error");
+          }
+        },
+      }
+    );
+  }
 
   if (url.searchParams.has("_rsc")) {
     rscStream.pipe(res);
@@ -91,13 +116,6 @@ export default async function handler({ res, url }) {
       domStream.abort();
     }, RENDER_TIMEOUT);
   }
-
-  // if (!url.searchParams.has("_rsc")) {
-  //   const html = renderToString(<Html />);
-  //   res.writeHead(200, { "Content-Type": "text/html" });
-  //   res.end("<!DOCTYPE html>" + html);
-  //   return;
-  // }
 }
 
 async function prepareMatch(match, url) {

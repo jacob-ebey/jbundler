@@ -2,7 +2,8 @@ import { Counter } from "../components/counter.jsx";
 
 const js = String.raw;
 
-export default function Root({ children }) {
+export default async function Root({ children }) {
+  await new Promise((resolve) => setTimeout(resolve, 100));
   return (
     <html>
       <head>

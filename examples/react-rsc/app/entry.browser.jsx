@@ -18,17 +18,21 @@ let rscChunk = createFromFetch(rscResponse);
  *
  * @param {{
  *  done?: () => void;
+ * rscChunk: typeof rscChunk;
  * }} param0
  * @returns
  */
-function ReactServerComponent({ done }) {
+function ReactServerComponent({ done, rscChunk }) {
   useLayoutEffect(() => {
     if (done) done();
   }, [done]);
   return use(rscChunk);
 }
 
-const root = hydrateRoot(document, <ReactServerComponent />);
+let root;
+startTransition(() => {
+  root = hydrateRoot(document, <ReactServerComponent rscChunk={rscChunk} />);
+});
 
 /** @type {AbortController | undefined} */
 let lastAbortController;
@@ -51,13 +55,11 @@ const updateDOM = async (url, signal) => {
       startTransition(() => {
         root.render(
           <ReactServerComponent
+            rscChunk={rscChunk}
             done={() => {
               resolve();
               if (called) return;
               called = true;
-              if (!window.navigation && !signal.aborted) {
-                window.history.pushState(null, "", url.href);
-              }
             }}
           />
         );
