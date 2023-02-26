@@ -19,6 +19,7 @@
       "default": "./virtual/build-target.js"
     },
     "./rsc-browser-runtime": "./src/rsc-browser-runtime.js",
+    "./rsc-server-runtime": "./src/rsc-server-runtime.js",
     "./webpack-map": {
       "types": "./virtual/webpack-map.d.ts",
       "default": "./virtual/webpack-map.js"

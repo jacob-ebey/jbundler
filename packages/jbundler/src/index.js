@@ -90,6 +90,7 @@ export async function build(config) {
     ? createBrowserWebpackMap(
         config,
         rscEntriesClientCache,
+        rscEntriesServerCache,
         browserBuildResult,
         serverBuildResult
       )
@@ -230,6 +231,7 @@ function createEsbuildServerOptions(
                 (!args.path.startsWith(".") && !args.path.startsWith("/"))) &&
               args.path !== "jbundler/build-target" &&
               args.path !== "jbundler/client-entry" &&
+              args.path !== "jbundler/rsc-server-runtime" &&
               args.path !== "jbundler/webpack-map"
             ) {
               return { path: args.path, external: true, sideEffects: false };
@@ -251,6 +253,7 @@ function createEsbuildServerOptions(
 /**
  * @param {import("./config.js").JBundlerConfig} config
  * @param {Set<string>} rscEntriesCache
+ * @param {Set<string>} rscEntriesServerCache
  * @param {import("esbuild").BuildResult} browserBuildResult
  * @param {import("esbuild").BuildResult} serverBuildResult
  * @returns {string}
@@ -258,6 +261,7 @@ function createEsbuildServerOptions(
 function createBrowserWebpackMap(
   config,
   rscEntriesCache,
+  rscEntriesServerCache,
   browserBuildResult,
   serverBuildResult
 ) {
@@ -272,7 +276,7 @@ function createBrowserWebpackMap(
    */
   const webpackMap = {};
 
-  const buildChunks = new Map(
+  const serverBuildChunks = new Map(
     Object.entries(serverBuildResult.metafile.outputs).reduce(
       (acc, [outputFile, output]) => {
         if (output.entryPoint) {
@@ -283,67 +287,79 @@ function createBrowserWebpackMap(
       []
     )
   );
+  const clientBuildChunks = new Map();
 
   for (const [outputFile, output] of Object.entries(
     browserBuildResult.metafile.outputs
   )) {
     if (output.entryPoint) {
-      for (const input of Object.keys(output.inputs)) {
-        const inputPath = path.resolve(config.cwd, input);
-        if (!rscEntriesCache.has(inputPath)) {
-          continue;
-        }
-
-        const entryChunk =
-          config.browser.publicPath +
-          path.relative(
-            config.browser.outdir,
-            path.resolve(config.cwd, outputFile)
+      const input = output.entryPoint;
+      const inputPath = path.resolve(config.cwd, input);
+      const entryChunk =
+        config.browser.publicPath +
+        path.relative(
+          config.browser.outdir,
+          path.resolve(config.cwd, outputFile)
+        );
+      const importChunks = output.imports.reduce((acc, c) => {
+        if (!c.external && c.kind === "import-statement") {
+          acc.push(
+            config.browser.publicPath +
+              path.relative(
+                config.browser.outdir,
+                path.resolve(config.cwd, c.path)
+              )
           );
-        webpackMap[input] = webpackMap[input] || {};
-        webpackMap[entryChunk] = webpackMap[entryChunk] || {};
-        const specifier = buildChunks.get(input);
-
-        for (const exportKey of output.exports) {
-          const entry = {
-            id: entryChunk,
-            name: exportKey,
-            specifier,
-            chunks: [
-              entryChunk,
-              ...output.imports.reduce((acc, c) => {
-                if (!c.external && c.kind === "import-statement") {
-                  acc.push(
-                    config.browser.publicPath +
-                      path.relative(
-                        config.browser.outdir,
-                        path.resolve(config.cwd, c.path)
-                      )
-                  );
-                }
-                return acc;
-              }, []),
-            ],
-          };
-          webpackMap[input][exportKey] = entry;
-          webpackMap[entryChunk][exportKey] = entry;
         }
+        return acc;
+      }, []);
+
+      clientBuildChunks.set(inputPath, [entryChunk, importChunks]);
+
+      webpackMap[input] = webpackMap[input] || {};
+      webpackMap[entryChunk] = webpackMap[entryChunk] || {};
+      const specifier = serverBuildChunks.get(input);
+
+      if (!specifier) {
+        continue;
+      }
+      for (const exportKey of output.exports) {
+        const entry = {
+          id: entryChunk,
+          name: exportKey,
+          specifier,
+          chunks: [entryChunk, ...importChunks],
+        };
+        webpackMap[input][exportKey] = entry;
+        webpackMap[entryChunk][exportKey] = entry;
       }
     }
   }
 
-  for (const [_, output] of Object.entries(
-    serverBuildResult.metafile.outputs
-  )) {
+  for (const [, output] of Object.entries(serverBuildResult.metafile.outputs)) {
     if (output.entryPoint) {
-      webpackMap[output.entryPoint] = webpackMap[output.entryPoint] || {};
+      if (webpackMap[output.entryPoint]) {
+        continue;
+      }
+      webpackMap[output.entryPoint] = {};
       for (const exportKey of output.exports) {
-        // @ts-expect-error - server component chunks only have "specifier"
-        webpackMap[output.entryPoint][exportKey] =
-          webpackMap[output.entryPoint][exportKey] || {};
-        webpackMap[output.entryPoint][exportKey].specifier =
-          webpackMap[output.entryPoint][exportKey].specifier ||
-          buildChunks.get(output.entryPoint);
+        webpackMap[output.entryPoint][exportKey] = {
+          ...(webpackMap[output.entryPoint][exportKey] || {}),
+          specifier: serverBuildChunks.get(output.entryPoint),
+        };
+        if (webpackMap[output.entryPoint][exportKey].id) {
+          webpackMap[webpackMap[output.entryPoint][exportKey].id][exportKey] = {
+            ...(webpackMap[webpackMap[output.entryPoint][exportKey].id][
+              exportKey
+            ] || {}),
+            specifier: serverBuildChunks.get(output.entryPoint),
+          };
+        }
+        const defaultObj = {
+          specifier: serverBuildChunks.get(output.entryPoint),
+          ...(webpackMap[output.entryPoint][exportKey] || {}),
+        };
+        webpackMap[output.entryPoint][exportKey] = defaultObj;
       }
     }
   }

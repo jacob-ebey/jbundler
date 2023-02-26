@@ -46,6 +46,7 @@ export function createServerServerComponentsTransformPlugin(
                 let name = node.declaration.id?.name;
                 if (!name || name[0] !== name[0].toUpperCase()) return;
                 rscExports.push(name);
+                nodePath.replaceWith(node.declaration);
               }
             },
             ExportDefaultDeclaration(nodePath) {
@@ -54,6 +55,7 @@ export function createServerServerComponentsTransformPlugin(
                 let name = node.declaration.id?.name;
                 if (!name || name[0] !== name[0].toUpperCase()) return;
                 rscExports.push([name, "default"]);
+                nodePath.replaceWith(node.declaration);
               }
             },
           },
@@ -70,18 +72,26 @@ export function createServerServerComponentsTransformPlugin(
       let [defineFor, name] = Array.isArray(rscExport)
         ? rscExport
         : [rscExport, rscExport];
-      footer += `Object.defineProperties(${defineFor}, {
-        $$typeof: { value: Symbol.for('react.server.reference') },
-        $$filepath: { value: ${JSON.stringify(
-          path.relative(config.cwd, contents.path)
-        )} },
-        $$name: { value: ${JSON.stringify(name)} },
-        $$bound: { value: [] },
-      });
+      footer += `
+        const ___RSC_${defineFor} = ___RSCServerRuntime___.createServerComponent(
+          ${defineFor},
+          ${JSON.stringify(path.relative(config.cwd, contents.path))},
+          ${JSON.stringify(name)},
+          ${JSON.stringify(defineFor)}
+        );
+        Object.defineProperties(${defineFor}, {
+          $$typeof: { value: Symbol.for('react.server.reference') },
+        });
+        export { ___RSC_${defineFor} as ${name} };
       `;
     }
 
-    code = transformResult.code + footer;
+    code =
+      transformResult.code +
+      (footer
+        ? `import * as ___RSCServerRuntime___ from "jbundler/rsc-server-runtime";` +
+          footer
+        : "");
 
     return {
       code,
