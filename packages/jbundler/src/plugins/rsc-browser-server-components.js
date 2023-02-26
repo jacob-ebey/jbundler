@@ -88,7 +88,7 @@ export function createBrowserServerComponentsTransformPlugin(
           async: { value: true },
         });
         export { ${defineFor} as ${name} };
-        `;
+      `;
     }
 
     code =
