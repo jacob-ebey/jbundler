@@ -21,7 +21,7 @@
   },
   "scripts": {
     "build": "jbundler build",
-    "dev": "jbundler dev -- node --watch server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "react": "0.0.0-experimental-4fcc9184a-20230217",
