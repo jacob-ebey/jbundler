@@ -2,7 +2,7 @@
 import * as path from "node:path";
 import { PassThrough, Transform } from "node:stream";
 
-import { use } from "react";
+import * as React from "react";
 import { renderToPipeableStream as renderToPipeableStreamDOM } from "react-dom/server";
 import { createFromNodeStream } from "react-server-dom-webpack/client";
 import { renderToPipeableStream as renderToPipeableStreamRSC } from "react-server-dom-webpack/server";
@@ -11,6 +11,7 @@ import { matchTrie } from "router-trie";
 import entryScript, {
   imports as entryScriptImports,
 } from "jbundler/client-entry";
+import { RscContext } from "jbundler/rsc-context";
 import webpackMapJson from "jbundler/webpack-map";
 
 import { createElementsFromMatches } from "./components/router.jsx";
@@ -90,27 +91,32 @@ export default async function handler({ res, url }) {
     const rscChunk = createFromNodeStream(rscPassthrough, webpackMap);
     rscStream.pipe(rscPassthrough);
     function ReactServerComponent() {
-      return use(rscChunk);
+      return React.use(rscChunk);
     }
 
-    const domStream = renderToPipeableStreamDOM(<ReactServerComponent />, {
-      bootstrapModules: [entryScript, ...entryScriptImports],
-      onShellReady() {
-        res.writeHead(200, { "Content-Type": "text/html" });
-        domStream.pipe(rscTransform);
-        rscTransform.pipe(res, { end: true });
-      },
-      onShellError(error) {
-        console.error(error);
-        if (!res.headersSent) {
-          res.writeHead(500, { "Content-Type": "text/plain" });
-          res.end("Internal server error");
-        }
-      },
-      onError(error) {
-        console.error(error);
-      },
-    });
+    const domStream = renderToPipeableStreamDOM(
+      <RscContext.Provider value={rscTransform}>
+        <ReactServerComponent />
+      </RscContext.Provider>,
+      {
+        bootstrapModules: [entryScript, ...entryScriptImports],
+        onShellReady() {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          domStream.pipe(rscTransform);
+          rscTransform.pipe(res, { end: true });
+        },
+        onShellError(error) {
+          console.error(error);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Internal server error");
+          }
+        },
+        onError(error) {
+          console.error(error);
+        },
+      }
+    );
     setTimeout(() => {
       rscStream.abort();
       domStream.abort();
@@ -137,8 +143,12 @@ class RSCTransform extends Transform {
     super();
     this.rscPassthrough = rscPassthrough;
     this.readyToFlush = false;
-    this.bufferedChunks = [];
+    this.readyToFlushPromise = new Promise((resolve) => {
+      this.resolveReadyToFlush = resolve;
+    });
+    this.childStreamPromises = [];
     this.rscPromise = new Promise((resolve, reject) => {
+      let bufferedChunks = [];
       this.rscPassthrough.on("data", (chunk) => {
         const chunkString = chunk.toString();
         const toPush = `<script>
@@ -150,36 +160,101 @@ class RSCTransform extends Transform {
 </script>`;
 
         if (this.readyToFlush) {
+          for (const bufferedChunk of bufferedChunks) {
+            this.push(bufferedChunk);
+          }
+          bufferedChunks = [];
           this.push(toPush);
         } else {
-          this.bufferedChunks.push(toPush);
+          bufferedChunks.push(toPush);
         }
       });
       this.rscPassthrough.on("end", () => {
-        resolve();
+        resolve(bufferedChunks);
       });
       this.rscPassthrough.on("error", (error) => {
         reject(error);
       });
+    }).then(async (bufferedChunks) => {
+      await this.readyToFlushPromise;
+      for (const chunk of bufferedChunks) {
+        this.push(chunk);
+      }
+      this.push(`<script>window._rsc.controller.close();</script>`);
     });
+  }
+
+  queueChildStream(id, childStream) {
+    const idJSON = JSON.stringify(id);
+    this.childStreamPromises.push(
+      new Promise((resolve, reject) => {
+        let bufferedChunks = [
+          `<script>
+            window._rsc = window._rsc || { encoder: new TextEncoder() };
+            window._rsc[${idJSON}] = {};
+            window._rsc[${idJSON}].response = new Response(new ReadableStream({
+              start(controller) {
+                window._rsc[${idJSON}].controller = controller;
+              }
+            }), { headers: { "Content-Type": "text/plain" } });
+          </script>`,
+        ];
+        childStream.on("data", (chunk) => {
+          const chunkString = chunk.toString();
+          const toPush = `<script>
+            window._rsc[${idJSON}].controller.enqueue(
+              window._rsc.encoder.encode(
+                ${JSON.stringify(chunkString)}
+              )
+            );
+          </script>`;
+
+          if (this.readyToFlush) {
+            for (const bufferedChunk of bufferedChunks) {
+              this.push(bufferedChunk);
+            }
+            bufferedChunks = [];
+            this.push(toPush);
+          } else {
+            bufferedChunks.push(toPush);
+          }
+        });
+        childStream.on("end", () => {
+          resolve(bufferedChunks);
+        });
+        childStream.on("error", (error) => {
+          reject(error);
+        });
+      }).then(async (bufferedChunks) => {
+        await this.readyToFlushPromise;
+        for (const chunk of bufferedChunks) {
+          this.push(chunk);
+        }
+        this.push(
+          `<script>window._rsc[${idJSON}].controller.close();</script>`
+        );
+      })
+    );
   }
 
   _transform(chunk, encoding, callback) {
     callback(null, chunk);
+    this.readyToFlush = chunk.toString().includes("</script>");
+    if (this.readyToFlush && this.resolveReadyToFlush) {
+      this.resolveReadyToFlush();
+      this.resolveReadyToFlush = null;
+    }
   }
 
   _final(callback) {
-    this.rscPromise.then(
-      () => {
-        for (const chunk of this.bufferedChunks) {
-          this.push(chunk);
-        }
-        this.push(`<script>window._rsc.controller.close();</script>`);
+    Promise.all([this.rscPromise, ...this.childStreamPromises])
+      .then(() => {
         callback();
-      },
-      (err) => {
-        callback(err);
-      }
-    );
+      })
+      .catch((error) => {
+        callback(error);
+      });
   }
 }
+
+function createChildStream(id, childStream) {}

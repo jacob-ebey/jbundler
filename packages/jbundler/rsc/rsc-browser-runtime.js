@@ -9,6 +9,19 @@ export function createServerComponent(filepath, name, displayName) {
   const Component = ({ children, ...props }) => {
     const p = JSON.stringify(props);
     const cacheId = filepath + ":" + name + ":" + p;
+
+    if (
+      window._rsc[cacheId] &&
+      window._rsc[cacheId].response &&
+      (!window._rsc.chunks || !window._rsc.chunks[cacheId])
+    ) {
+      const rscChunk = ReactRSC.createFromFetch(
+        Promise.resolve(window._rsc[cacheId].response)
+      );
+      window._rsc.chunks = window._rsc.chunks || {};
+      window._rsc.chunks[cacheId] = rscChunk;
+    }
+
     let rscChunk = (window._rsc.chunks = window._rsc.chunks || {})
       ? window._rsc.chunks[cacheId]
       : undefined;

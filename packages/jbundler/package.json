@@ -18,8 +18,9 @@
       "types": "./virtual/build-target.d.ts",
       "default": "./virtual/build-target.js"
     },
-    "./rsc-browser-runtime": "./src/rsc-browser-runtime.js",
-    "./rsc-server-runtime": "./src/rsc-server-runtime.js",
+    "./rsc-browser-runtime": "./rsc/rsc-browser-runtime.js",
+    "./rsc-context": "./rsc/rsc-context.js",
+    "./rsc-server-runtime": "./rsc/rsc-server-runtime.js",
     "./webpack-map": {
       "types": "./virtual/webpack-map.d.ts",
       "default": "./virtual/webpack-map.js"
