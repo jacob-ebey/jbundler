@@ -17,7 +17,7 @@ import webpackMapJson from "jbundler/webpack-map";
 import { createElementsFromMatches } from "./components/router.jsx";
 import routes from "./routes.jsx";
 
-const js = String.raw;
+const html = String.raw;
 const RENDER_TIMEOUT = 5_000;
 const webpackMap = JSON.parse(webpackMapJson);
 
@@ -151,13 +151,11 @@ class RSCTransform extends Transform {
       let bufferedChunks = [];
       this.rscPassthrough.on("data", (chunk) => {
         const chunkString = chunk.toString();
-        const toPush = `<script>
-  window._rsc.controller.enqueue(
-    window._rsc.encoder.encode(
-      ${JSON.stringify(chunkString)}
-    )
-  );
-</script>`;
+        const toPush = html`<script>
+          window._rsc.controller.enqueue(
+            window._rsc.encoder.encode(${JSON.stringify(chunkString)})
+          );
+        </script>`;
 
         if (this.readyToFlush) {
           for (const bufferedChunk of bufferedChunks) {
@@ -180,7 +178,11 @@ class RSCTransform extends Transform {
       for (const chunk of bufferedChunks) {
         this.push(chunk);
       }
-      this.push(`<script>window._rsc.controller.close();</script>`);
+      this.push(
+        html`<script>
+          window._rsc.controller.close();
+        </script>`
+      );
     });
   }
 
@@ -189,14 +191,17 @@ class RSCTransform extends Transform {
     this.childStreamPromises.push(
       new Promise((resolve, reject) => {
         let bufferedChunks = [
-          `<script>
+          html`<script>
             window._rsc = window._rsc || { encoder: new TextEncoder() };
             window._rsc[${idJSON}] = {};
-            window._rsc[${idJSON}].response = new Response(new ReadableStream({
-              start(controller) {
-                window._rsc[${idJSON}].controller = controller;
-              }
-            }), { headers: { "Content-Type": "text/plain" } });
+            window._rsc[${idJSON}].response = new Response(
+              new ReadableStream({
+                start(controller) {
+                  window._rsc[${idJSON}].controller = controller;
+                },
+              }),
+              { headers: { "Content-Type": "text/plain" } }
+            );
           </script>`,
         ];
         childStream.on("data", (chunk) => {
@@ -231,7 +236,9 @@ class RSCTransform extends Transform {
           this.push(chunk);
         }
         this.push(
-          `<script>window._rsc[${idJSON}].controller.close();</script>`
+          html`<script>
+            window._rsc[${idJSON}].controller.close();
+          </script>`
         );
       })
     );
@@ -239,7 +246,7 @@ class RSCTransform extends Transform {
 
   _transform(chunk, encoding, callback) {
     callback(null, chunk);
-    this.readyToFlush = chunk.toString().includes("</script>");
+    this.readyToFlush = chunk.toString().includes("</body>");
     if (this.readyToFlush && this.resolveReadyToFlush) {
       this.resolveReadyToFlush();
       this.resolveReadyToFlush = null;
